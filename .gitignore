@@ -1,0 +1,6 @@
+node_modules/
+dist/
+data/
+*.log
+# bulky scraped doc dumps (clean markdown copies live in audit/md/)
+audit/raw/

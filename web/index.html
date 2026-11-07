@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Union GamePlan — Player Development Reports</title>
+<style>
+  :root { font-family: system-ui, sans-serif; --ue-green: #1E5A38; --ue-offwhite: #F4F5F4; }
+  body { max-width: 860px; margin: 0 auto; padding: 0 1rem 2rem; color: #17202a; background: var(--ue-offwhite); }
+  .page { background: #fff; padding: 1.2rem 1.6rem 2rem; min-height: 100vh; }
+  header.ue { display: flex; align-items: center; gap: 14px; border-bottom: 4px solid var(--ue-green); padding-bottom: 10px; margin-bottom: 8px; }
+  header.ue img { height: 56px; width: auto; }
+  h1 { font-size: 1.4rem; color: var(--ue-green); margin: 0; }
+  h2 { font-size: 1.05rem; margin-top: 1.6rem; color: var(--ue-green); }
+  label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; }
+  select, button { font: inherit; padding: 0.45rem 0.7rem; border-radius: 6px; border: 1px solid #b9c2cc; }
+  button { cursor: pointer; background: var(--ue-green); color: #fff; border: none; }
+  button.secondary { background: #5d6d7e; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .games { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.4rem; }
+  .games label { font-weight: 400; margin: 0; }
+  .muted { color: #5d6d7e; font-size: 0.9rem; }
+  .banner { padding: 0.5rem 0.8rem; border-radius: 6px; margin: 0.6rem 0; }
+  .banner.warn { background: #fef9e7; border: 1px solid #f4d03f; }
+  .banner.ok { background: #eafaf1; border: 1px solid #58d68d; }
+  #reports li { margin: 0.2rem 0; }
+  a { color: var(--ue-green); }
+</style>
+</head>
+<body>
+<div class="page">
+<header class="ue">
+  <img src="/assets/ue-logo.jpg" alt="Union Elite">
+  <div>
+    <h1>Union GamePlan</h1>
+    <p class="muted" style="margin:0">Player development reports from Superstat data — runs entirely on this PC.</p>
+  </div>
+</header>
+<div id="modeBanner" class="banner warn" hidden></div>
+
+<h2>1 · Sync</h2>
+<button id="syncBtn">Sync now</button> <span id="lastSync" class="muted"></span>
+<div id="syncResult" class="banner ok" hidden></div>
+
+<h2>2 · Select team</h2>
+<select id="teamSelect" disabled><option>Loading…</option></select>
+
+<h2>3 · Select player</h2>
+<select id="playerSelect" disabled><option>—</option></select>
+<button id="deletePlayerBtn" class="secondary" hidden title="Permanently removes this player's stats, insights and saved reports from this PC">Delete this player's data</button>
+
+<h2>4 · Select games</h2>
+<div id="gamePresets">
+  <label><input type="radio" name="preset" value="3"> Last 3 games</label>
+  <label><input type="radio" name="preset" value="5" checked> Last 5 games</label>
+  <label><input type="radio" name="preset" value="10"> Last 10 games</label>
+  <label><input type="radio" name="preset" value="all"> All available games</label>
+</div>
+<div id="games" class="games"></div>
+
+<h2>5 · Generate report</h2>
+<button id="generateBtn" disabled>Generate report</button>
+<button id="downloadBtn" hidden>Download PDF</button>
+<div id="reportMsg" class="banner ok" hidden></div>
+<div id="statsView" hidden>
+  <h3>Statistical summary</h3>
+  <div id="confidenceFlags"></div>
+  <table id="aggTable" style="border-collapse:collapse" border="1" cellpadding="6">
+    <tbody id="aggBody"></tbody>
+  </table>
+  <h3>Shooting distribution <span class="muted">(approximate court zones)</span></h3>
+  <ul id="zoneList" class="muted"></ul>
+  <h3>AI analysis <span id="aiProvider" class="muted"></span></h3>
+  <div id="aiNote"></div>
+  <ul id="aiFindings"></ul>
+  <h3>Per-game</h3>
+  <table style="border-collapse:collapse" border="1" cellpadding="4">
+    <thead><tr><th>Date</th><th>Opponent</th><th>PTS</th><th>MIN</th><th>FG%</th><th>3P%</th><th>FT%</th><th>eFG%</th><th>TS%</th><th>AST</th><th>TO</th><th>REB</th></tr></thead>
+    <tbody id="gameBody"></tbody>
+  </table>
+  <p id="validationNote" class="muted"></p>
+</div>
+
+<h2>Previous reports</h2>
+<ul id="reports"></ul>
+<h2>Compare two reports</h2>
+<p class="muted">Pick an earlier report and a later one; the comparison uses the stored snapshots only.</p>
+<select id="compareA"></select> → <select id="compareB"></select>
+<button id="compareBtn" class="secondary">Compare</button>
+<div id="compareView" hidden>
+  <div id="compareSample" class="muted"></div>
+  <table style="border-collapse:collapse" border="1" cellpadding="4">
+    <thead><tr><th>Metric</th><th>Earlier</th><th>Later</th><th>Change</th><th>Trend</th></tr></thead>
+    <tbody id="compareBody"></tbody>
+  </table>
+  <div id="comparePriorities"></div>
+</div>
+
+<script src="/app.js"></script>
+</div>
+</body>
+</html>
