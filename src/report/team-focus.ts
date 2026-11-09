@@ -42,7 +42,12 @@ export interface MetricCard {
 export interface TeamFocus {
   gamesConsidered: number;
   insightsReady: number;
+  /** Per-match insight items, as stored (fallback for older snapshots). */
   summary: { whatsWorking: string[]; focusAreas: string[]; suggestions: string[] };
+  /** Cross-game synthesis: recurring themes consolidated across the selected
+   * games, each with the games that support it (deterministic frequency
+   * analysis over the per-match team insights). */
+  synthesis: { whatsWorking: string[]; focusAreas: string[]; suggestions: string[] };
   metrics: MetricCard[];
   note: string | null;
 }
@@ -93,12 +98,6 @@ export function buildTeamFocus(
   const rebPg = perGame((t) => t.reb);
   const defPg = perGame((t) => t.stl + t.blk);
 
-  const commentFor = (key: string): string | null => {
-    const last = [...ready].reverse().find((i) => i.ratings?.[key]?.comment);
-    const c = last?.ratings?.[key]?.comment ?? null;
-    // Landscape cards fit ~300 characters comfortably; clamp extreme comments.
-    return c === null ? null : c.length > 300 ? `${c.slice(0, 299).trimEnd()}…` : c;
-  };
   const r1 = (n: number): number => Math.round(n * 10) / 10;
 
   const metrics: MetricCard[] = [
@@ -107,7 +106,7 @@ export function buildTeamFocus(
       value: shotMix === null ? "—" : `${Math.round(shotMix)}%`,
       badge: shotMix === null ? "POOR" : shotMix >= 30 && shotMix <= 70 ? "GOOD" : "POOR",
       sub: "Shots near the basket",
-      description: commentFor("shotMix") ?? (shotMix === null ? "No located team shots for this selection." : `About ${Math.round(shotMix)}% of the team's shots came from inside the paint radius.`),
+      description: shotMix === null ? "No located team shots for this selection." : `About ${Math.round(shotMix)}% of the team's shots came from inside the paint radius.`,
       source: avg((r) => r.shotMix?.value) !== null ? "superstat" : "computed",
     },
     {
@@ -115,7 +114,7 @@ export function buildTeamFocus(
       value: pps === null ? "—" : r1(pps).toFixed(2),
       badge: pps === null ? "POOR" : pps >= 1.2 ? "SUPER" : pps >= 1.0 ? "GOOD" : "POOR",
       sub: "Scoring efficiency",
-      description: commentFor("pointsPerShot") ?? (pps === null ? "No shot attempts recorded." : `The team scored ${r1(pps)} points per shot attempt across the selection.`),
+      description: pps === null ? "No shot attempts recorded." : `The team scored ${r1(pps)} points per shot attempt across ${games} game(s).`,
       source: avg((r) => r.pointsPerShot?.value) !== null ? "superstat" : "computed",
     },
     {
@@ -123,7 +122,7 @@ export function buildTeamFocus(
       value: assistRate === null ? "—" : `${Math.round(assistRate)}%`,
       badge: assistRate === null ? "POOR" : assistRate >= 35 ? "SUPER" : assistRate >= 22 ? "GOOD" : "POOR",
       sub: "Team play",
-      description: commentFor("assistRate") ?? (assistRate === null ? "No field goals recorded." : `${Math.round(assistRate)}% of the team's made field goals were assisted.`),
+      description: assistRate === null ? "No field goals recorded." : `${Math.round(assistRate)}% of the team's made field goals were assisted.`,
       source: avg((r) => r.assistRate?.value) !== null ? "superstat" : "computed",
     },
     {
@@ -131,7 +130,7 @@ export function buildTeamFocus(
       value: tovPg === null ? "—" : String(Math.round(tovPg)),
       badge: tovPg === null ? "POOR" : tovPg <= 10 ? "SUPER" : tovPg <= 15 ? "GOOD" : "POOR",
       sub: "Ball security, per game",
-      description: commentFor("turnovers") ?? (tovPg === null ? "No games in this selection." : `${Math.round(tovPg * 10) / 10} turnovers per game across the selection.`),
+      description: tovPg === null ? "No games in this selection." : `${r1(tovPg)} turnovers per game across ${games} game(s).`,
       source: avg((r) => r.turnovers?.value) !== null ? "superstat" : "computed",
     },
     {
@@ -139,7 +138,7 @@ export function buildTeamFocus(
       value: rebPg === null ? "—" : String(Math.round(rebPg)),
       badge: rebPg === null ? "POOR" : rebPg >= 38 ? "SUPER" : rebPg >= 28 ? "GOOD" : "POOR",
       sub: "Per game",
-      description: commentFor("rebounds") ?? (rebPg === null ? "No games in this selection." : `${Math.round(rebPg * 10) / 10} rebounds per game across the selection.`),
+      description: rebPg === null ? "No games in this selection." : `${r1(rebPg)} rebounds per game across ${games} game(s).`,
       source: avg((r) => r.rebounds?.value) !== null ? "superstat" : "computed",
     },
     {
@@ -147,7 +146,7 @@ export function buildTeamFocus(
       value: defPg === null ? "—" : String(Math.round(defPg)),
       badge: defPg === null ? "POOR" : defPg >= 10 ? "SUPER" : defPg >= 6 ? "GOOD" : "POOR",
       sub: "Steals + blocks, per game",
-      description: commentFor("defensiveImpact") ?? (defPg === null ? "No games in this selection." : `${Math.round(defPg * 10) / 10} combined steals and blocks per game.`),
+      description: defPg === null ? "No games in this selection." : `${r1(defPg)} combined steals and blocks per game.`,
       source: avg((r) => r.defensiveImpact?.value) !== null ? "superstat" : "computed",
     },
   ];
@@ -156,10 +155,82 @@ export function buildTeamFocus(
   if (metrics.some((m) => m.source === "computed")) notes.push("Some team metrics were calculated from box-score totals because Superstat's team insights were not ready for every game.");
   if (summary.whatsWorking.length === 0 && summary.focusAreas.length === 0 && summary.suggestions.length === 0) notes.push("No team insight summaries were available for this selection.");
 
+  // Cross-game synthesis: short, data-derived claims built from the team
+  // ratings and the per-match summaries. Each line stays short enough for the
+  // landscape cards (no ellipsis truncation) and cites its basis.
+  const trim = (text: string, max: number): string => {
+    const s = text.replace(/\s+/g, " ").trim();
+    if (s.length <= max) return s;
+    const cutWords = s.slice(0, max).split(" ").slice(0, -1).join(" ");
+    return cutWords.length > 0 ? cutWords : s.slice(0, max);
+  };
+  const consolidate = (
+    items: Array<{ text: string; date: string }>,
+    totalGames: number,
+    cap: number,
+  ): string[] => {
+    const groups = new Map<string, { text: string; dates: string[] }>();
+    const order: string[] = [];
+    for (const { text, date } of items) {
+      const trimmed = trim(text, 120);
+      const key = trimmed.toLowerCase();
+      const g = groups.get(key);
+      if (g) { g.dates.push(date); continue; }
+      groups.set(key, { text: trimmed, dates: [date] });
+      order.push(key);
+    }
+    const parts = order.map((key) => {
+      const g = groups.get(key)!;
+      const n = g.dates.length;
+      const dates = g.dates.join(", ");
+      if (totalGames > 1 && n === totalGames) return `${g.text} — flagged in every game analysed (${dates}).`;
+      if (n > 1) return `${g.text} — flagged in ${n} of ${totalGames} games (${dates}).`;
+      return `${g.text} (${dates}).`;
+    });
+    const recurringFirst = [...parts].sort((a, b) => {
+      const na = a.includes("every game") ? 2 : a.includes("of " + totalGames + " games") ? 1 : 0;
+      const nb = b.includes("every game") ? 2 : b.includes("of " + totalGames + " games") ? 1 : 0;
+      return nb - na;
+    });
+    return recurringFirst.slice(0, cap);
+  };
+
+  const perMatch = {
+    whatsWorking: ready.flatMap((i) => (i.summary?.whatsWorking ?? []).map((t) => ({ text: t, date: i.playedAt.slice(0, 10) }))),
+    focusAreas: ready.flatMap((i) => (i.summary?.focusAreas ?? []).map((t) => ({ text: t, date: i.playedAt.slice(0, 10) }))),
+    suggestions: ready.flatMap((i) => (i.summary?.suggestions ?? []).map((t) => ({ text: t, date: i.playedAt.slice(0, 10) }))),
+  };
+
+  // Data-derived synthesis lines from the aggregated team metrics.
+  const synth = {
+    whatsWorking: [] as string[],
+    focusAreas: [] as string[],
+    suggestions: [] as string[],
+  };
+  if (rebPg !== null && rebPg >= 28) synth.whatsWorking.push(`Rebounding is a team strength at ${r1(rebPg)} per game.`);
+  if (pps !== null && pps >= 1.0) synth.whatsWorking.push(`Shot quality is solid at ${r1(pps)} points per shot.`);
+  if (assistRate !== null && assistRate >= 22) synth.whatsWorking.push(`Team play shows in an assist rate of ${Math.round(assistRate)}%.`);
+  if (tovPg !== null && tovPg > 15) synth.focusAreas.push(`Ball security: ${r1(tovPg)} turnovers per game is the clear team focus.`);
+  if (defPg !== null && defPg < 6) synth.focusAreas.push(`Defensive activity: ${r1(defPg)} steals + blocks per game needs work.`);
+  if (shotMix !== null && shotMix < 30) synth.focusAreas.push(`Shot mix leans to the perimeter (${Math.round(shotMix)}% close).`);
+
+  const synthesis = {
+    whatsWorking: [
+      ...synth.whatsWorking.slice(0, 2),
+      ...consolidate(perMatch.whatsWorking, games, Math.max(0, 2 - synth.whatsWorking.length)),
+    ],
+    focusAreas: [
+      ...synth.focusAreas.slice(0, 2),
+      ...consolidate(perMatch.focusAreas, games, Math.max(0, 2 - synth.focusAreas.length)),
+    ],
+    suggestions: consolidate(perMatch.suggestions, games, 2),
+  };
+
   return {
     gamesConsidered: games,
     insightsReady: ready.length,
     summary,
+    synthesis,
     metrics,
     note: notes.length > 0 ? notes.join(" ") : null,
   };

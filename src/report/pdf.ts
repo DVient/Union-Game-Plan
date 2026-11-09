@@ -154,6 +154,20 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
     doc.moveDown(0.5).font("Helvetica").fontSize(10.5).fillColor(INK);
     homeX();
   };
+  /** Exact greedy word-wrap line count — mirrors pdfkit's wrapping, so card
+   * heights derived from it cannot overflow. */
+  const wrapLines = (text: string, width: number, font: string, size: number): number => {
+    doc.font(font).fontSize(size);
+    const space = doc.widthOfString(" ");
+    let lines = 1, lineW = 0;
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const w = doc.widthOfString(word);
+      if (lineW === 0) { lineW = w; continue; }
+      if (lineW + space + w <= width) lineW += space + w;
+      else { lines++; lineW = w; }
+    }
+    return lines;
+  };
   const P = (text: string): void => {
     ensureSpace(30);
     doc.font("Helvetica").fontSize(10.5).fillColor(INK).text(text, { lineGap: 3 });
@@ -401,15 +415,27 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
 
     const cardW = (W - 2 * 12) / 3;
 
-    // --- Overview: three summary cards from the team insights ---
+    // --- Overview: three synthesis cards (cross-game team insights) ---
+    const synthesis = tf.synthesis ?? {
+      whatsWorking: tf.summary.whatsWorking,
+      focusAreas: tf.summary.focusAreas,
+      suggestions: tf.summary.suggestions,
+    };
     doc.font("Helvetica-Bold").fontSize(12).fillColor(UE_GREEN).text("Overview").moveDown(0.4);
     const overview = [
-      { title: "What's Working", icon: "check" as const, items: tf.summary.whatsWorking },
-      { title: "Focus Areas", icon: "target" as const, items: tf.summary.focusAreas },
-      { title: "Suggestions", icon: "bulb" as const, items: tf.summary.suggestions },
+      { title: "What's Working", icon: "check" as const, items: synthesis.whatsWorking },
+      { title: "Focus Areas", icon: "target" as const, items: synthesis.focusAreas },
+      { title: "Suggestions", icon: "bulb" as const, items: synthesis.suggestions },
     ];
+    // Card heights from exact wrapped line counts (items capped at 3/card).
+    const ovHeights = overview.map((card) => {
+      const items = card.items.slice(0, 3);
+      let h = 40;
+      for (const item of items) h += wrapLines(item, cardW - 20, "Helvetica", 8) * 10 + 6;
+      return Math.max(h + 12, 96);
+    });
+    const ovCardH = Math.max(...ovHeights);
     const ovY = doc.y + 2;
-    const ovCardH = 100;
     overview.forEach((card, j) => {
       const x = MARGIN + j * (cardW + 12);
       doc.roundedRect(x, ovY, cardW, ovCardH, 8).fillColor("#FFFFFF").fill().lineWidth(1).strokeColor(CARD_BORDER).stroke();
@@ -429,36 +455,28 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
         .text(card.title, x + 32, ovY + 13, { width: cardW - 38, lineBreak: false });
       doc.font("Helvetica").fontSize(8).fillColor("#475569");
       let iy = ovY + 34;
-      let dropped = 0;
-      for (const item of card.items) {
+      for (const item of card.items.slice(0, 3)) {
         doc.text(`•  ${item}`, x + 10, iy, { width: cardW - 20, lineGap: 2 });
-        iy = doc.y + 5;
-        if (iy > ovY + ovCardH - 30) { dropped++; continue; }
+        iy = doc.y + 6;
       }
-      if (dropped > 0) {
+      if (card.items.length > 3) {
         doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(UE_GREY)
-          .text(`+ ${dropped} more in the match insights`, x + 10, Math.min(iy, ovY + ovCardH - 18), { lineBreak: false });
+          .text(`+ ${card.items.length - 3} more in the match insights`, x + 10, ovY + ovCardH - 16, { lineBreak: false });
       }
     });
     doc.y = ovY + ovCardH + 16;
     doc.x = MARGIN;
 
     // --- A Closer Look: six metric cards (3 x 2), adaptive row heights ---
-    // Row height is measured from the longest description so full API comments
-    // render without truncation.
+    // Row height is measured from the exact wrapped line count of the longest
+    // description, so full API comments render without truncation or overflow.
     doc.font("Helvetica-Bold").fontSize(12).fillColor(UE_GREEN).text("A Closer Look").moveDown(0.4);
     const gridY = doc.y + 2; // captured once — card text must not drift the grid
     const badgeColours: Record<string, string> = { SUPER: "#1B4D3E", GOOD: UE_GREEN, POOR: MISS_RED };
     const descFont = 8, descLineH = 10;
-    const descLines = (text: string): number => {
-      doc.font("Helvetica").fontSize(descFont);
-      // +1 slack line: word-wrap never uses the full measured width, so the
-      // estimate must err tall or text overflows the card.
-      return Math.max(2, Math.ceil(doc.widthOfString(text) / (cardW - 20)) + 1);
-    };
     const rowH = [0, 1].map((row) => {
       const descs = tf.metrics.slice(row * 3, row * 3 + 3).map((m) => m.description);
-      const maxLines = Math.max(...descs.map(descLines), 2);
+      const maxLines = Math.max(...descs.map((d) => wrapLines(d, cardW - 20, "Helvetica", 8)), 2);
       return 58 + maxLines * descLineH + 8;
     }) as [number, number];
     tf.metrics.forEach((m, i) => {
