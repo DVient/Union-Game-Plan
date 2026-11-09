@@ -95,7 +95,9 @@ export function buildTeamFocus(
 
   const commentFor = (key: string): string | null => {
     const last = [...ready].reverse().find((i) => i.ratings?.[key]?.comment);
-    return last?.ratings?.[key]?.comment ?? null;
+    const c = last?.ratings?.[key]?.comment ?? null;
+    // Landscape cards fit ~300 characters comfortably; clamp extreme comments.
+    return c === null ? null : c.length > 300 ? `${c.slice(0, 299).trimEnd()}…` : c;
   };
   const r1 = (n: number): number => Math.round(n * 10) / 10;
 

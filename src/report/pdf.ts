@@ -110,7 +110,9 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
       // page-1 green band, but clearly the same document. Drawn within the
       // writable area with the flow position saved/restored (drawing below the
       // bottom margin inside this event would recurse into auto-pagination).
+      // Width-aware: works for portrait content pages and any landscape page.
       const savedX = doc.x, savedY = doc.y;
+      const usable = doc.page.width - 2 * MARGIN;
       const dates = input.games.map((g) => g.playedAt.slice(0, 10)).sort();
       const hasColourLogo = typeof input.logoPath === "string" && input.logoPath.length > 0 && existsSync(input.logoPath);
       let logoWidth = 0;
@@ -122,12 +124,12 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
           doc.image(input.logoPath!, MARGIN, 18, { height: 30 });
         } catch { /* a broken logo must never fail the report */ }
       }
-      const textWidth = USABLE - (logoWidth > 0 ? logoWidth + 16 : 0);
+      const textWidth = usable - (logoWidth > 0 ? logoWidth + 16 : 0);
       doc.font("Helvetica-Bold").fontSize(9.5).fillColor(UE_GREEN)
         .text("Player Development Report — continued", MARGIN, 22, { width: textWidth, align: "right", lineBreak: false });
       doc.font("Helvetica").fontSize(8).fillColor(UE_GREY)
         .text(`${input.playerName}${input.jerseyNumber ? ` (#${input.jerseyNumber})` : ""} · ${input.teamName} · ${dates[0] ?? "?"}–${dates[dates.length - 1] ?? "?"}`, MARGIN, 37, { width: textWidth, align: "right", lineBreak: false });
-      doc.moveTo(MARGIN, 52).lineTo(MARGIN + USABLE, 52).lineWidth(1).strokeColor(UE_GREEN).stroke();
+      doc.moveTo(MARGIN, 52).lineTo(MARGIN + usable, 52).lineWidth(1).strokeColor(UE_GREEN).stroke();
       doc.x = savedX; doc.y = savedY;
     });
     doc.on("end", () => resolve({ buffer: Buffer.concat(chunks), pages }));
@@ -383,8 +385,9 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
     }
   };
 
-  /** Team Focus insert page: team-level context, brand-adapted dashboard. */
+  /** Team Focus insert page (landscape): team-level context dashboard. */
   const drawTeamFocusPage = (tf: TeamFocus): void => {
+    const W = doc.page.width - 2 * MARGIN; // usable width on this (landscape) page
     const pageBgY = 56;
     const pageBgH = doc.page.height - pageBgY - FOOTER_BAND_H;
     doc.rect(0, pageBgY, doc.page.width, pageBgH).fill(UE_OFFWHITE);
@@ -393,11 +396,10 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
     doc.font("Helvetica-Bold").fontSize(16).fillColor(INK).text("Team Focus");
     doc.font("Helvetica").fontSize(9.5).fillColor(UE_GREY)
       .text(`How the team is playing across the ${tf.gamesConsidered} selected game(s)`, { lineGap: 2 });
-    doc.moveTo(MARGIN, doc.y + 4).lineTo(MARGIN + USABLE, doc.y + 4).lineWidth(1.2).strokeColor(UE_GREEN).stroke();
-    doc.moveDown(1).font("Helvetica").fontSize(10.5).fillColor(INK);
+    doc.moveTo(MARGIN, doc.y + 4).lineTo(MARGIN + W, doc.y + 4).lineWidth(1.2).strokeColor(UE_GREEN).stroke();
+    doc.moveDown(0.8).font("Helvetica").fontSize(10.5).fillColor(INK);
 
-    const cardW = (USABLE - 2 * 12) / 3;
-    const cardH = 128;
+    const cardW = (W - 2 * 12) / 3;
 
     // --- Overview: three summary cards from the team insights ---
     doc.font("Helvetica-Bold").fontSize(12).fillColor(UE_GREEN).text("Overview").moveDown(0.4);
@@ -407,7 +409,7 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
       { title: "Suggestions", icon: "bulb" as const, items: tf.summary.suggestions },
     ];
     const ovY = doc.y + 2;
-    const ovCardH = 170;
+    const ovCardH = 100;
     overview.forEach((card, j) => {
       const x = MARGIN + j * (cardW + 12);
       doc.roundedRect(x, ovY, cardW, ovCardH, 8).fillColor("#FFFFFF").fill().lineWidth(1).strokeColor(CARD_BORDER).stroke();
@@ -450,12 +452,14 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
     const descFont = 8, descLineH = 10;
     const descLines = (text: string): number => {
       doc.font("Helvetica").fontSize(descFont);
-      return Math.max(2, Math.ceil(doc.widthOfString(text) / (cardW - 20)));
+      // +1 slack line: word-wrap never uses the full measured width, so the
+      // estimate must err tall or text overflows the card.
+      return Math.max(2, Math.ceil(doc.widthOfString(text) / (cardW - 20)) + 1);
     };
     const rowH = [0, 1].map((row) => {
       const descs = tf.metrics.slice(row * 3, row * 3 + 3).map((m) => m.description);
       const maxLines = Math.max(...descs.map(descLines), 2);
-      return 66 + maxLines * descLineH + 10;
+      return 58 + maxLines * descLineH + 8;
     }) as [number, number];
     tf.metrics.forEach((m, i) => {
       const col = i % 3, row = Math.floor(i / 3);
@@ -464,20 +468,20 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
       const mCardH = row === 0 ? rowH[0]! : rowH[1]!;
       doc.roundedRect(x, y, cardW, mCardH, 8).fillColor("#FFFFFF").fill().lineWidth(1).strokeColor(CARD_BORDER).stroke();
       doc.font("Helvetica-Bold").fontSize(7).fillColor(UE_GREY)
-        .text(m.label.toUpperCase(), x + 10, y + 10, { width: cardW - 20, characterSpacing: 0.8, lineBreak: false });
+        .text(m.label.toUpperCase(), x + 10, y + 8, { width: cardW - 20, characterSpacing: 0.8, lineBreak: false });
       doc.font("Helvetica-Bold").fontSize(20).fillColor(INK)
-        .text(m.value, x + 10, y + 24, { lineBreak: false });
+        .text(m.value, x + 10, y + 20, { lineBreak: false });
       const valueW = doc.widthOfString(m.value);
       const badgeText = m.badge;
       doc.font("Helvetica-Bold").fontSize(7);
       const badgeW = doc.widthOfString(badgeText) + 10;
       const badgeX = x + 10 + valueW + 8;
-      doc.roundedRect(badgeX, y + 30, badgeW, 13, 6).fillColor(badgeColours[m.badge] ?? UE_GREEN).fill();
-      doc.fillColor("#FFFFFF").text(badgeText, badgeX + 5, y + 33, { lineBreak: false });
+      doc.roundedRect(badgeX, y + 26, badgeW, 13, 6).fillColor(badgeColours[m.badge] ?? UE_GREEN).fill();
+      doc.fillColor("#FFFFFF").text(badgeText, badgeX + 5, y + 29, { lineBreak: false });
       doc.font("Helvetica-Bold").fontSize(8).fillColor(UE_GREY)
-        .text(m.sub.toUpperCase(), x + 10, y + 52, { width: cardW - 20, characterSpacing: 0.5, lineBreak: false });
+        .text(m.sub.toUpperCase(), x + 10, y + 46, { width: cardW - 20, characterSpacing: 0.5, lineBreak: false });
       doc.font("Helvetica").fontSize(descFont).fillColor("#475569")
-        .text(m.description, x + 10, y + 66, { width: cardW - 20, lineGap: 2 });
+        .text(m.description, x + 10, y + 58, { width: cardW - 20, lineGap: 2 });
     });
     doc.y = gridY + rowH[0] + 12 + rowH[1] + 8;
     doc.x = MARGIN;
@@ -638,9 +642,13 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
   B(limits);
 
   // Team Focus page LAST (team-level context; unnumbered so the plan's section
-  // numbering stays intact) — included in every player's report.
+  // numbering stays intact) — included in every player's report. Landscape:
+  // the dashboard cards breathe across the wider, shorter page.
   if (input.teamFocus) {
-    doc.addPage();
+    doc.addPage({
+      size: "A4", layout: "landscape",
+      margins: { top: 56, bottom: 40, left: MARGIN, right: MARGIN },
+    });
     drawTeamFocusPage(input.teamFocus);
   }
 
