@@ -4,99 +4,110 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Union GamePlan — Player Development Reports</title>
-<style>
-  :root { font-family: system-ui, sans-serif; --ue-green: #1E5A38; --ue-offwhite: #F4F5F4; }
-  body { max-width: 860px; margin: 0 auto; padding: 0 1rem 2rem; color: #17202a; background: var(--ue-offwhite); }
-  .page { background: #fff; padding: 1.2rem 1.6rem 2rem; min-height: 100vh; }
-  header.ue { display: flex; align-items: center; gap: 14px; border-bottom: 4px solid var(--ue-green); padding-bottom: 10px; margin-bottom: 8px; }
-  header.ue img { height: 56px; width: auto; }
-  h1 { font-size: 1.4rem; color: var(--ue-green); margin: 0; }
-  h2 { font-size: 1.05rem; margin-top: 1.6rem; color: var(--ue-green); }
-  label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; }
-  select, button { font: inherit; padding: 0.45rem 0.7rem; border-radius: 6px; border: 1px solid #b9c2cc; }
-  button { cursor: pointer; background: var(--ue-green); color: #fff; border: none; }
-  button.secondary { background: #5d6d7e; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .games { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.4rem; }
-  .games label { font-weight: 400; margin: 0; }
-  .muted { color: #5d6d7e; font-size: 0.9rem; }
-  .banner { padding: 0.5rem 0.8rem; border-radius: 6px; margin: 0.6rem 0; }
-  .banner.warn { background: #fef9e7; border: 1px solid #f4d03f; }
-  .banner.ok { background: #eafaf1; border: 1px solid #58d68d; }
-  #reports li { margin: 0.2rem 0; }
-  a { color: var(--ue-green); }
-</style>
+<link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div class="page">
-<header class="ue">
-  <img src="/assets/ue-logo.jpg" alt="Union Elite">
-  <div>
-    <h1>Union GamePlan</h1>
-    <p class="muted" style="margin:0">Player development reports from Superstat data — runs entirely on this PC.</p>
-  </div>
+
+<header class="topbar">
+  <img class="crest" src="/assets/ue-logo.jpg" alt="Union Elite">
+  <span class="wordmark">Union GamePlan</span>
+  <span class="spacer"></span>
+  <span id="syncStatus" class="chip"><span class="dot"></span>Not synced</span>
+  <span id="modeChip" class="chip mock"><span class="dot"></span>SAMPLE DATA</span>
 </header>
-<div id="modeBanner" class="banner warn" hidden></div>
 
-<h2>1 · Sync</h2>
-<button id="syncBtn">Sync now</button> <span id="lastSync" class="muted"></span>
-<div id="syncResult" class="banner ok" hidden></div>
+<main class="page">
+  <div class="page-head">
+    <h1>Player Development Reports</h1>
+    <p>Evidence-based development reports from your Superstat data — everything stays on this PC.</p>
+  </div>
+  <div id="modeBanner" class="banner warn" hidden></div>
 
-<h2>2 · Select team</h2>
-<select id="teamSelect" disabled><option>Loading…</option></select>
+  <section class="step">
+    <div class="step-head"><span class="step-num">1</span><h2>Sync</h2><span class="hint">Pull new games from Superstat</span></div>
+    <div class="inline-controls">
+      <button id="syncBtn">Sync now</button>
+      <div id="syncResult" class="banner ok" hidden style="flex:1;margin:0"></div>
+    </div>
+  </section>
 
-<h2>3 · Select player</h2>
-<select id="playerSelect" disabled><option>—</option></select>
-<button id="deletePlayerBtn" class="secondary" hidden title="Permanently removes this player's stats, insights and saved reports from this PC">Delete this player's data</button>
+  <section class="step">
+    <div class="step-head"><span class="step-num">2</span><h2>Select team</h2></div>
+    <select id="teamSelect" disabled><option>Loading…</option></select>
+  </section>
 
-<h2>4 · Select games</h2>
-<div id="gamePresets">
-  <label><input type="radio" name="preset" value="3"> Last 3 games</label>
-  <label><input type="radio" name="preset" value="5" checked> Last 5 games</label>
-  <label><input type="radio" name="preset" value="10"> Last 10 games</label>
-  <label><input type="radio" name="preset" value="all"> All available games</label>
-</div>
-<div id="games" class="games"></div>
+  <section class="step">
+    <div class="step-head"><span class="step-num">3</span><h2>Select player</h2></div>
+    <div class="row2">
+      <select id="playerSelect" disabled><option>—</option></select>
+      <button id="deletePlayerBtn" class="destructive" hidden title="Permanently removes this player's stats, insights and saved reports from this PC">Delete this player's data</button>
+    </div>
+  </section>
 
-<h2>5 · Generate report</h2>
-<button id="generateBtn" disabled>Generate report</button>
-<button id="downloadBtn" hidden>Download PDF</button>
-<div id="reportMsg" class="banner ok" hidden></div>
-<div id="statsView" hidden>
-  <h3>Statistical summary</h3>
-  <div id="confidenceFlags"></div>
-  <table id="aggTable" style="border-collapse:collapse" border="1" cellpadding="6">
-    <tbody id="aggBody"></tbody>
-  </table>
-  <h3>Shooting distribution <span class="muted">(approximate court zones)</span></h3>
-  <ul id="zoneList" class="muted"></ul>
-  <h3>AI analysis <span id="aiProvider" class="muted"></span></h3>
-  <div id="aiNote"></div>
-  <ul id="aiFindings"></ul>
-  <h3>Per-game</h3>
-  <table style="border-collapse:collapse" border="1" cellpadding="4">
-    <thead><tr><th>Date</th><th>Opponent</th><th>PTS</th><th>MIN</th><th>FG%</th><th>3P%</th><th>FT%</th><th>eFG%</th><th>TS%</th><th>AST</th><th>TO</th><th>REB</th></tr></thead>
-    <tbody id="gameBody"></tbody>
-  </table>
-  <p id="validationNote" class="muted"></p>
-</div>
+  <section class="step">
+    <div class="step-head"><span class="step-num">4</span><h2>Select games</h2></div>
+    <div id="gamePresets" class="seg">
+      <label><input type="radio" name="preset" value="3">Last 3</label>
+      <label><input type="radio" name="preset" value="5" checked>Last 5</label>
+      <label><input type="radio" name="preset" value="10">Last 10</label>
+      <label><input type="radio" name="preset" value="all">All</label>
+    </div>
+    <div id="games" class="games"></div>
+  </section>
 
-<h2>Previous reports</h2>
-<ul id="reports"></ul>
-<h2>Compare two reports</h2>
-<p class="muted">Pick an earlier report and a later one; the comparison uses the stored snapshots only.</p>
-<select id="compareA"></select> → <select id="compareB"></select>
-<button id="compareBtn" class="secondary">Compare</button>
-<div id="compareView" hidden>
-  <div id="compareSample" class="muted"></div>
-  <table style="border-collapse:collapse" border="1" cellpadding="4">
-    <thead><tr><th>Metric</th><th>Earlier</th><th>Later</th><th>Change</th><th>Trend</th></tr></thead>
-    <tbody id="compareBody"></tbody>
-  </table>
-  <div id="comparePriorities"></div>
-</div>
+  <section class="step">
+    <div class="step-head"><span class="step-num">5</span><h2>Generate report</h2></div>
+    <div class="inline-controls">
+      <button id="generateBtn" disabled>Generate report</button>
+      <button id="downloadBtn" class="secondary" hidden>Download PDF</button>
+    </div>
+    <div id="reportMsg" class="banner ok" hidden></div>
+
+    <div id="statsView" hidden class="results">
+      <div id="confidenceFlags"></div>
+      <div class="subhead">Statistical summary</div>
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="subhead">Shooting zones <span style="font-weight:400;text-transform:none;letter-spacing:0">(approximate court areas)</span></div>
+      <ul id="zoneList" class="muted" style="margin:0;padding-left:18px"></ul>
+      <div class="subhead">AI analysis <span id="aiProvider" class="muted" style="text-transform:none;font-weight:400"></span></div>
+      <div id="aiNote"></div>
+      <div id="aiFindings"></div>
+      <div class="subhead">Per-game</div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Date</th><th>Opponent</th><th>PTS</th><th>MIN</th><th>FG%</th><th>3P%</th><th>FT%</th><th>eFG%</th><th>TS%</th><th>AST</th><th>TO</th><th>REB</th></tr></thead>
+          <tbody id="gameBody"></tbody>
+        </table>
+      </div>
+      <p id="validationNote" class="muted" style="font-size:12.5px"></p>
+    </div>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><span class="step-num">6</span><h2>Compare reports</h2><span class="hint">Progress between reporting periods</span></div>
+    <div class="inline-controls">
+      <select id="compareA" style="max-width:260px"></select>
+      <select id="compareB" style="max-width:260px"></select>
+      <button id="compareBtn" class="secondary" disabled>Compare</button>
+    </div>
+    <div id="compareView" hidden style="margin-top:14px">
+      <div id="compareSample" class="banner info" hidden></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Earlier</th><th>Later</th><th>Change</th><th>Trend</th></tr></thead>
+          <tbody id="compareBody"></tbody>
+        </table>
+      </div>
+      <div id="comparePriorities" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section class="step">
+    <div class="step-head"><span class="step-num">7</span><h2>Previous reports</h2></div>
+    <div id="reports"></div>
+  </section>
+</main>
 
 <script src="/app.js"></script>
-</div>
 </body>
 </html>
