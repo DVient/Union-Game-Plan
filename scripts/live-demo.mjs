@@ -24,7 +24,8 @@ const state = await (await fetch(base + "/api/state")).json();
 check("app is in LIVE mode", state.mockMode === false);
 
 const sync = await (await fetch(base + "/api/sync", { method: "POST" })).json();
-check("live sync succeeds", sync.mode === "live" && sync.notes.length === 0, JSON.stringify({ teams: sync.teams, players: sync.players, matches: sync.matches, boxScores: sync.boxScores, eventSets: sync.eventSets, insights: sync.insights, notes: sync.notes }));
+const unexpected = sync.notes.filter((n) => !n.includes("corrected"));
+check("live sync succeeds (only date-correction notes allowed)", sync.mode === "live" && unexpected.length === 0, JSON.stringify({ teams: sync.teams, players: sync.players, matches: sync.matches, boxScores: sync.boxScores, eventSets: sync.eventSets, insights: sync.insights, notes: sync.notes }));
 
 const state2 = await (await fetch(base + "/api/state")).json();
 const realTeams = state2.teams;

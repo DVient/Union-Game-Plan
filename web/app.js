@@ -198,8 +198,9 @@ async function doCompare() {
   if (c.error) { $("compareView").hidden = true; alert(c.error); return; }
   $("compareView").hidden = false;
   const sample = $("compareSample");
-  sample.hidden = !c.sampleNote;
-  sample.textContent = c.sampleNote ?? "";
+  const drift = [c.earlierDateNote, c.laterDateNote].filter(Boolean);
+  sample.hidden = !c.sampleNote && drift.length === 0;
+  sample.innerHTML = [c.sampleNote, ...drift].filter(Boolean).map((n) => `<div>⏱ ${n}</div>`).join("");
   const trendMark = {
     improved: `<span class="trend-up">▲ improved</span>`,
     declined: `<span class="trend-down">▼ declined</span>`,

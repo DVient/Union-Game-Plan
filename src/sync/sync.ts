@@ -43,15 +43,23 @@ function upsertPlayer(db: DatabaseSync, teamId: string, p: RosterPlayer): void {
   ).run(p.id, teamId, p.firstName, p.lastName, p.jerseyNumber);
 }
 
-function upsertMatch(db: DatabaseSync, teamId: string, m: Match): void {
+function upsertMatch(db: DatabaseSync, teamId: string, m: Match): string | null {
+  // Returns a correction note when the stored game date differs from the API
+  // (coach fixed the date in Superstat) — surfaced in the sync result.
+  const existing = db.prepare("SELECT played_at FROM matches WHERE id = ?").get(m.id) as { played_at: string } | undefined;
   db.prepare(
     "INSERT INTO matches (id, team_id, played_at, status, team_score, opponent_name, opponent_score, recorded_by, opponent_stats_tracked) " +
       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
-      "ON CONFLICT(id) DO UPDATE SET status=excluded.status, team_score=excluded.team_score, " +
+      "ON CONFLICT(id) DO UPDATE SET played_at=excluded.played_at, status=excluded.status, team_score=excluded.team_score, " +
       "opponent_name=excluded.opponent_name, opponent_score=excluded.opponent_score, " +
       "opponent_stats_tracked=excluded.opponent_stats_tracked",
   ).run(m.id, teamId, m.playedAt, m.status, m.team.score, m.opponent.name, m.opponent.score,
     m.recordedBy, m.opponentStatsTracked ? 1 : 0);
+  if (existing && existing.played_at !== m.playedAt) {
+    const fmt = (iso: string): string => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    return `${m.opponent.name}: game date corrected to ${fmt(m.playedAt)} (was ${fmt(existing.played_at)})`;
+  }
+  return null;
 }
 
 function saveBoxScore(db: DatabaseSync, box: MatchBoxScore, ts: string): void {
@@ -130,7 +138,8 @@ export async function sync(config: AppConfig, db: DatabaseSync): Promise<SyncRes
     }
     for (const m of bundle.matches) {
       const mExisting = db.prepare("SELECT id FROM matches WHERE id = ?").get(m.id);
-      upsertMatch(db, bundle.team.id, m);
+      const correction = upsertMatch(db, bundle.team.id, m);
+      if (correction) result.notes.push(correction);
       if (mExisting === undefined) result.matches++;
     }
     for (const [matchId, box] of bundle.boxScores) { saveBoxScore(db, box, ts); result.boxScores++; }
@@ -167,7 +176,8 @@ export async function sync(config: AppConfig, db: DatabaseSync): Promise<SyncRes
         saveRaw(db, "matches", team.id, matches.raw, ts);
         for (const m of matches.data) {
           const existing = db.prepare("SELECT id FROM matches WHERE id = ?").get(m.id);
-          upsertMatch(db, team.id, m);
+          const correction = upsertMatch(db, team.id, m);
+          if (correction) result.notes.push(correction);
           if (existing === undefined) result.matches++;
           if (m.status !== "complete") continue;
           const haveBox = db.prepare("SELECT match_id FROM box_score_totals WHERE match_id = ? AND side = 'team'").get(m.id);

@@ -326,7 +326,19 @@ app.get("/api/compare", async (request, reply) => {
   const earlier = load(a);
   const later = load(b);
   if (earlier === null || later === null) return reply.code(404).send({ error: "One or both reports not found" });
-  return compareReports(earlier, later);
+  const comparison = compareReports(earlier, later);
+  // Surface game-date corrections: a snapshot generated before a date fix
+  // keeps its original dates (immutable), so tell the coach to regenerate.
+  const driftNote = (snap: ReportSnapshot): string | null => {
+    const mismatches = snap.stats.games.filter((g) => {
+      const cur = db.prepare("SELECT played_at FROM matches WHERE id = ?").get(g.matchId) as { played_at: string } | undefined;
+      return cur !== undefined && cur.played_at !== g.playedAt;
+    }).length;
+    return mismatches > 0
+      ? `This snapshot was generated before ${mismatches} game date(s) were corrected — regenerate the report to update.`
+      : null;
+  };
+  return { ...comparison, earlierDateNote: driftNote(earlier), laterDateNote: driftNote(later) };
 });
 
 // §12: permanently delete a player's data and reports. Removes the player
