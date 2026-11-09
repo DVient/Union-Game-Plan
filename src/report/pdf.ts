@@ -427,25 +427,41 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
         .text(card.title, x + 32, ovY + 13, { width: cardW - 38, lineBreak: false });
       doc.font("Helvetica").fontSize(8).fillColor("#475569");
       let iy = ovY + 34;
+      let dropped = 0;
       for (const item of card.items) {
         doc.text(`•  ${item}`, x + 10, iy, { width: cardW - 20, lineGap: 2 });
         iy = doc.y + 5;
-        if (iy > ovY + ovCardH - 14) break;
+        if (iy > ovY + ovCardH - 30) { dropped++; continue; }
+      }
+      if (dropped > 0) {
+        doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(UE_GREY)
+          .text(`+ ${dropped} more in the match insights`, x + 10, Math.min(iy, ovY + ovCardH - 18), { lineBreak: false });
       }
     });
     doc.y = ovY + ovCardH + 16;
     doc.x = MARGIN;
 
-    // --- A Closer Look: six metric cards (3 x 2), on a fixed grid base ---
+    // --- A Closer Look: six metric cards (3 x 2), adaptive row heights ---
+    // Row height is measured from the longest description so full API comments
+    // render without truncation.
     doc.font("Helvetica-Bold").fontSize(12).fillColor(UE_GREEN).text("A Closer Look").moveDown(0.4);
-    const mCardH = 140;
     const gridY = doc.y + 2; // captured once — card text must not drift the grid
     const badgeColours: Record<string, string> = { SUPER: "#1B4D3E", GOOD: UE_GREEN, POOR: MISS_RED };
+    const descFont = 8, descLineH = 10;
+    const descLines = (text: string): number => {
+      doc.font("Helvetica").fontSize(descFont);
+      return Math.max(2, Math.ceil(doc.widthOfString(text) / (cardW - 20)));
+    };
+    const rowH = [0, 1].map((row) => {
+      const descs = tf.metrics.slice(row * 3, row * 3 + 3).map((m) => m.description);
+      const maxLines = Math.max(...descs.map(descLines), 2);
+      return 66 + maxLines * descLineH + 10;
+    }) as [number, number];
     tf.metrics.forEach((m, i) => {
       const col = i % 3, row = Math.floor(i / 3);
       const x = MARGIN + col * (cardW + 12);
-      const y = gridY + row * (mCardH + 12);
-      const desc = m.description.length > 200 ? `${m.description.slice(0, 199).trimEnd()}…` : m.description;
+      const y = gridY + (row === 0 ? 0 : rowH[0]! + 12);
+      const mCardH = row === 0 ? rowH[0]! : rowH[1]!;
       doc.roundedRect(x, y, cardW, mCardH, 8).fillColor("#FFFFFF").fill().lineWidth(1).strokeColor(CARD_BORDER).stroke();
       doc.font("Helvetica-Bold").fontSize(7).fillColor(UE_GREY)
         .text(m.label.toUpperCase(), x + 10, y + 10, { width: cardW - 20, characterSpacing: 0.8, lineBreak: false });
@@ -460,10 +476,10 @@ function buildContentBuffer(input: ReportPdfInput): Promise<{ buffer: Buffer; pa
       doc.fillColor("#FFFFFF").text(badgeText, badgeX + 5, y + 33, { lineBreak: false });
       doc.font("Helvetica-Bold").fontSize(8).fillColor(UE_GREY)
         .text(m.sub.toUpperCase(), x + 10, y + 52, { width: cardW - 20, characterSpacing: 0.5, lineBreak: false });
-      doc.font("Helvetica").fontSize(8).fillColor("#475569")
-        .text(desc, x + 10, y + 66, { width: cardW - 20, lineGap: 2 });
+      doc.font("Helvetica").fontSize(descFont).fillColor("#475569")
+        .text(m.description, x + 10, y + 66, { width: cardW - 20, lineGap: 2 });
     });
-    doc.y = gridY + 2 * (mCardH + 12) + 8;
+    doc.y = gridY + rowH[0] + 12 + rowH[1] + 8;
     doc.x = MARGIN;
     if (tf.note) {
       doc.font("Helvetica").fontSize(8.5).fillColor(UE_GREY).text(tf.note, MARGIN, doc.y, { width: USABLE });
